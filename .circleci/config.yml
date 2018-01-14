@@ -35,6 +35,9 @@ jobs:
           command: |
             node_modules/.bin/gulp less
 
+            find ./www
+            pwd
+
       - persist_to_workspace:
           root: /tmp/workspace/
           paths:
@@ -74,6 +77,9 @@ jobs:
           name: Deploy to S3 if tests pass and branch is Master
           command: |
             source /tmp/venv/bin/activate
+
+            find ./www
+            pwd
 
             aws s3 sync /tmp/workspace/www s3://${S3_BUCKET_NAME}/ --delete
             aws cloudfront create-invalidation --distribution-id ${CLOUDFRONT_DISTRIBUTION_ID} --paths '/*'
