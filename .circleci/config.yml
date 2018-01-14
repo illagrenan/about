@@ -1,58 +1,17 @@
 version: 2
 jobs:
-  build-content-job:
+  build-web-job:
+    working_directory: /tmp/about
     docker:
-      - image: circleci/python:3.6.2
-    working_directory: /tmp/blog
+      - image: node:9
+
     steps:
       - checkout
 
       - run:
           name: Create workspace directory
           command: |
-            mkdir -p /tmp/workspace/published
-
-      - restore_cache:
-          name: Restore Python virtual environment cache
-          keys:
-          - v1-venv-build-content-{{ .Branch }}-{{ checksum "./requirements.txt" }}-
-          - v1-venv-build-content-{{ .Branch }}-
-          - v1-venv-build-content-
-
-      - run:
-          name: Create virtualenv
-          command: |
-            python3 -m venv /tmp/venv
-
-      - run:
-          name: Install dependencies
-          command: |
-            source /tmp/venv/bin/activate
-            pip install --no-input --compile --exists-action=a --use-wheel -r ./requirements.txt
-
-      - run:
-          name: Build Pelican content
-          command: |
-            source /tmp/venv/bin/activate
-            pelican -s publishconf.py -o /tmp/workspace/published/
-
-      - save_cache:
-          paths:
-            - /tmp/venv/
-          key: v1-venv-build-content-{{ .Branch }}-{{ checksum "./requirements.txt" }}-{{ epoch }}
-
-      - persist_to_workspace:
-          root: /tmp/workspace
-          paths:
-            - published
-
-  build-theme-job:
-    working_directory: /tmp/workspace/
-    docker:
-      - image: node:9
-
-    steps:
-      - checkout
+            mkdir -p /tmp/workspace/www
 
       - restore_cache:
           keys:
@@ -60,11 +19,8 @@ jobs:
           - v1-dependencies-{{ .Branch }}-
           - v1-dependencies-
 
-      - attach_workspace:
-          at: /tmp/workspace
-
       - run:
-          name: Build Pelican content
+          name: Install node packages
           command: |
             yarn add gulp@next
             yarn install --production=false --check-files --pure-lockfile --network-concurrency=32 --non-interactive
@@ -77,21 +33,12 @@ jobs:
       - run:
           name: Install dependencies
           command: |
-            node_modules/.bin/gulp less --production
-            node_modules/.bin/gulp minify
-
-      - run:
-          name: Install dependencies
-          command: |
-            node_modules/.bin/gulp less --production
-            node_modules/.bin/gulp minify
-
-            cp ./vd-theme/static/css/build.css ./published/theme/css/
+            node_modules/.bin/gulp less
 
       - persist_to_workspace:
-          root: /tmp/workspace
+          root: /tmp/workspace/
           paths:
-            - published
+            - www
 
   deploy-job:
     docker:
@@ -124,35 +71,21 @@ jobs:
           key: v1-venv-deploy-{{ .Branch }}-{{ epoch }}
 
       - run:
-          name: Install dependencies
-          command: |
-            # Ref: https://unix.stackexchange.com/questions/34549/how-to-rename-multiple-files-by-removing-the-extension
-            find ./published/posts/ ./published/pages/ -name "*.html" -exec rename 's/\.html$//' '{}' \;
-            find ./published/posts/ ./published/pages/ -name "*.html" -type f -delete
-
-      - run:
           name: Deploy to S3 if tests pass and branch is Master
           command: |
             source /tmp/venv/bin/activate
 
-            # Removed --acl='public-read'
-            aws s3 sync /tmp/workspace/published s3://${S3_BUCKET_NAME}/ --exclude "pages/*" --exclude "posts/*" --delete
-            aws s3 sync /tmp/workspace/published/pages s3://${S3_BUCKET_NAME}/pages --delete --no-guess-mime-type  --content-type="text/html"
-            aws s3 sync /tmp/workspace/published/posts s3://${S3_BUCKET_NAME}/posts --delete --no-guess-mime-type  --content-type="text/html"
-
+            aws s3 sync /tmp/workspace/www s3://${S3_BUCKET_NAME}/ --delete
             aws cloudfront create-invalidation --distribution-id ${CLOUDFRONT_DISTRIBUTION_ID} --paths '/*'
 
 workflows:
   version: 2
   build-deploy:
     jobs:
-      - build-content-job
-      - build-theme-job:
-          requires:
-            - build-content-job
+      - build-web-job
       - deploy-job:
           requires:
-            - build-theme-job
+            - build-web-job
           filters:
             branches:
               only: master
