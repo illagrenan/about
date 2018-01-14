@@ -1,7 +1,7 @@
 version: 2
 jobs:
   build-web-job:
-    working_directory: /tmp/about
+    working_directory: /tmp/workspace
     docker:
       - image: node:9
 
